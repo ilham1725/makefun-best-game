@@ -1,6 +1,7 @@
-// The level-up cards: ten upgrades, three offered at a time. Each one names its effect in
-// plain words, carries a glyph the card draws, and applies itself to the keeper's stats.
-// Stacking is the point — a keeper who takes Twin Flames three times fires five shots.
+// The level-up cards: sixteen upgrades, three offered at a time. Each one names its
+// effect in plain words, carries a glyph the card draws, and applies itself to the
+// keeper's stats. Stacking is the point — a keeper who takes Twin Flames three times
+// fires five shots, and the weapon cards change what those shots are.
 
 /** The keeper's tunable stats; the world owns one of these. */
 export function baseStats() {
@@ -16,6 +17,16 @@ export function baseStats() {
     nova: 0,
     bulletSpeed: 660,
     bulletLife: 1.1,
+    /** The weapon: 'ember', 'spread' or 'lance'. */
+    weapon: 'ember',
+    /** Wisp companions orbiting the keeper, each firing on its own. */
+    wisp: 0,
+    /** Dash cooldown multiplier (lower is faster). */
+    dashCdMul: 1,
+    /** Damage dealt back to anything that touches the keeper. */
+    thorns: 0,
+    /** Times the keeper can survive a fatal blow. */
+    secondWind: 0,
   };
 }
 
@@ -72,6 +83,36 @@ export const UPGRADES = [
     id: 'long-burn', name: 'Long Burn', glyph: '↗',
     desc: 'Shots fly 25% faster and last longer.',
     apply(s) { s.bulletSpeed *= 1.25; s.bulletLife *= 1.2; },
+  },
+  {
+    id: 'spread-shot', name: 'Spread Shot', glyph: '❋',
+    desc: 'Your lantern fans out: wide 3-way shots, close and fierce.',
+    apply(s) { s.weapon = 'spread'; },
+  },
+  {
+    id: 'piercing-lance', name: 'Piercing Lance', glyph: '➤',
+    desc: 'Heavy lance bolts that pierce every foe they cross.',
+    apply(s) { s.weapon = 'lance'; },
+  },
+  {
+    id: 'wisp-drone', name: 'Wisp Companion', glyph: '✧',
+    desc: 'A wisp joins you and fires at the nearest foe.',
+    apply(s) { s.wisp += 1; },
+  },
+  {
+    id: 'dash-mastery', name: 'Dash Mastery', glyph: '⇄',
+    desc: 'Your dash recharges 35% faster.',
+    apply(s) { s.dashCdMul *= 0.65; },
+  },
+  {
+    id: 'thorn-cloak', name: 'Thorn Cloak', glyph: '✱',
+    desc: 'Foes that touch you take 2 damage.',
+    apply(s) { s.thorns += 2; },
+  },
+  {
+    id: 'second-wind', name: 'Second Wind', glyph: '✚',
+    desc: 'Once per run, survive a fatal blow with 1 heart.',
+    apply(s) { s.secondWind += 1; },
   },
 ];
 

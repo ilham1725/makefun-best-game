@@ -152,6 +152,13 @@ export function createAudio() {
       tone({ type: 'sine', from: 220, to: 880, dur: 0.3, vol: 0.3 });
       noise({ dur: 0.25, vol: 0.2, freq: 1800, type: 'highpass' });
     },
+    dash() {
+      noise({ dur: 0.16, vol: 0.28, freq: 2400, type: 'highpass' });
+      tone({ type: 'sine', from: 300, to: 720, dur: 0.14, vol: 0.2 });
+    },
+    milestone() {
+      [880, 1175].forEach((f, i) => tone({ type: 'triangle', from: f, to: f, dur: 0.12, vol: 0.25, at: i * 0.08 }));
+    },
     /** A slow two-voice pad that breathes under the whole game. */
     startPad() {
       if (!ensure() || padNodes) return;

@@ -10,20 +10,26 @@ import { SCREEN_OVER, SCREEN_PLAY, SCREEN_TITLE, SCREEN_UPGRADE, SCREEN_VICTORY 
 
 const TITLE_SECONDS = 5;
 const PLAY_MIN_SECONDS = 18;
-const PLAY_MAX_SECONDS = 170;
-const BOSS_FIGHT_SECONDS = 3.5;
+const PLAY_MAX_SECONDS = 240;
+const BOSS_FIGHT_SECONDS = 1.6;
 const MAX_RUN_SECONDS = 900;
 const END_LIMIT_SECONDS = 600;
 
 /** How the autopilot ranks upgrade cards when it must pick one itself. */
 const CARD_VALUE = {
   'twin-flames': 3.2,
+  'spread-shot': 3.1,
   'ember-rounds': 3.0,
+  'piercing-lance': 3.0,
   'rapid-wick': 2.8,
+  'wisp-drone': 2.6,
   'piercing-light': 2.5,
   'crit-spark': 2.2,
   'nova-burst': 2.0,
+  'second-wind': 1.9,
   'bright-shield': 1.8,
+  'thorn-cloak': 1.7,
+  'dash-mastery': 1.6,
   'swift-boots': 1.5,
   'long-burn': 1.4,
   'magnet-glow': 1.2,
@@ -96,7 +102,32 @@ export function autopilot(state) {
     ax = ember.x;
     ay = ember.y;
   }
-  return { mx: mx / ml, my: my / ml, ax, ay, firing: true };
+  // Dash: when something is about to touch the keeper and the dash is ready, burst
+  // away along the flee direction. A boss winding up a charge is a dash too.
+  let dash = false;
+  if (player.dashCd <= 0) {
+    for (const e of state.enemies) {
+      if (e.spawnT > 0) continue;
+      const d = Math.hypot(player.x - e.x, player.y - e.y);
+      if (d < 100) {
+        dash = true;
+        break;
+      }
+      if (e.boss && (e.state === 'aim' || e.state === 'charge') && d < 320) {
+        dash = true;
+        break;
+      }
+    }
+    if (!dash) {
+      for (const b of state.ebullets) {
+        if (Math.hypot(player.x - b.x, player.y - b.y) < 90) {
+          dash = true;
+          break;
+        }
+      }
+    }
+  }
+  return { mx: mx / ml, my: my / ml, ax, ay, firing: true, dash };
 }
 
 /** A hurried pilot: it only notices danger when it is already close, so it dies. */
@@ -128,16 +159,21 @@ function weakPilot(state) {
   };
 }
 
+/** The best card on offer, by the autopilot's values — the browser pilot uses it too. */
+export function bestCardIndex(upgrades) {
+  let best = 0;
+  for (let i = 1; i < upgrades.length; i += 1) {
+    if ((CARD_VALUE[upgrades[i].id] || 1) > (CARD_VALUE[upgrades[best].id] || 1)) best = i;
+  }
+  return best;
+}
+
 /** Spend every pending level-up on the best card offered. */
 function spendLevels(world) {
   let guard = 0;
   while (world.levelUpsPending > 0 && world.pendingUpgrades && guard < 10) {
     guard += 1;
-    let best = world.pendingUpgrades[0];
-    for (const card of world.pendingUpgrades) {
-      if ((CARD_VALUE[card.id] || 1) > (CARD_VALUE[best.id] || 1)) best = card;
-    }
-    world.applyUpgrade(best.id);
+    world.applyUpgrade(world.pendingUpgrades[bestCardIndex(world.pendingUpgrades)].id);
   }
 }
 
@@ -168,7 +204,10 @@ export function stageShot(name, world) {
       if (world.over) break;
       if (i >= PLAY_MIN_SECONDS / STEP && world.wave >= 2 && !world.banner && !world.boss) {
         const kinds = new Set(world.enemies.map((e) => e.kind));
-        const score = world.enemies.length * 10 + world.bullets.length + kinds.size * 15;
+        const elites = world.enemies.filter((e) => e.elite).length;
+        // The cover wants density, variety, elites, bullets — and a dash in flight.
+        const score = world.enemies.length * 10 + world.bullets.length * 2 + kinds.size * 15
+          + elites * 30 + (world.player.dashing ? 50 : 0);
         if (score > bestScore) {
           bestScore = score;
           bestStep = i;

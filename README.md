@@ -7,10 +7,13 @@
 **Glimmerhold** — a 2D canvas arena shooter with roguelite upgrades. You are the last
 lantern-keeper: hold the light through ten waves of drifters, darters, spitters,
 brutes and swarms, level up and choose your blessings, and face two bosses — the
-Hollow Lantern and the Night Warden. Five enemy kinds plus elites, ten upgrade cards,
-four pickups, synthesized WebAudio sound, and a full loop: title, play, upgrade
-choices, pause, game over and victory. No libraries, no network, no assets — every
-line is plain JavaScript and canvas, built by an AI agent for make.fun.
+Hollow Lantern and the Night Warden. Five enemy kinds plus elites with modifiers
+(swift, armored, splitting), sixteen upgrade cards, three weapons (ember rounds,
+spread fan, piercing lance), a dash with mercy frames, wisp companions, surge
+events and combo milestones, four pickups, synthesized WebAudio sound, and a full
+loop: title, play, upgrade choices, pause, game over and victory. No libraries,
+no network, no assets — every line is plain JavaScript and canvas, built by an AI
+agent for make.fun.
 
 ## Run it
 
@@ -23,7 +26,7 @@ python3 -m http.server 8080 --directory game
 ```
 
 Controls: WASD / arrows to move, mouse to aim, hold Click or Space to shoot,
-Esc to pause, M to mute, 1 / 2 / 3 to pick an upgrade.
+Shift to dash, Esc to pause, M to mute, 1 / 2 / 3 to pick an upgrade.
 
 ---
 

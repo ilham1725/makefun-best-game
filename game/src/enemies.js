@@ -4,28 +4,31 @@
 // change their attacks halfway through the fight, and elites are the same kinds grown
 // large and mean.
 
-import { BOSS_DEFS, ELITE, ENEMY_BULLET, ENEMY_DEFS, FIELD } from './config.js';
+import { BOSS_DEFS, ELITE, ELITE_MODS, ENEMY_BULLET, ENEMY_DEFS, FIELD } from './config.js';
 
 /** How long a fresh spawn takes to fade in before it can be hit. */
 const SPAWN_IN = 0.35;
 
-/** Build one enemy of a kind at a position. Elites scale up in every dimension. */
+/** Build one enemy of a kind at a position. Elites scale up and roll a modifier. */
 export function createEnemy(kind, x, y, rng, elite = false) {
   const def = ENEMY_DEFS[kind];
-  const hp = elite ? def.hp * ELITE.hpMul : def.hp;
+  const mod = elite ? rng.pick(['swift', 'armored', 'splitting']) : null;
+  const modDef = mod ? ELITE_MODS[mod] : null;
+  const hp = elite ? def.hp * ELITE.hpMul * (modDef && modDef.hpMul ? modDef.hpMul : 1) : def.hp;
   return {
     kind,
     x, y,
     vx: 0, vy: 0,
     hp, maxHp: hp,
     radius: def.radius * (elite ? ELITE.radiusMul : 1),
-    speed: def.speed * (elite ? ELITE.speedMul : 1) * rng.range(0.92, 1.08),
+    speed: def.speed * (elite ? ELITE.speedMul : 1) * (modDef && modDef.speedMul ? modDef.speedMul : 1) * rng.range(0.92, 1.08),
     score: def.score * (elite ? ELITE.scoreMul : 1),
     xp: def.xp * (elite ? ELITE.xpMul : 1),
     damage: def.damage,
     color: def.color,
     core: def.core,
     elite,
+    mod,
     boss: 0,
     t: 0,
     state: 'seek',
@@ -59,6 +62,7 @@ export function createBoss(tier, x, y) {
     color: def.color,
     core: def.core,
     elite: false,
+    mod: null,
     boss: tier,
     t: 0,
     state: 'seek',
@@ -224,6 +228,12 @@ function updateBoss1(e, world, dt, nx, ny, dist) {
         const a = angleTo(e, world.player.x, world.player.y) + k * 0.22;
         world.spawnEnemyBullet(e.x, e.y, Math.cos(a) * 300, Math.sin(a) * 300);
       }
+      // A cracked lantern leaks a rotating three-arm spiral as well.
+      e.spiralAngle += 0.5;
+      for (let k = 0; k < 3; k += 1) {
+        const a = e.spiralAngle + (k / 3) * Math.PI * 2;
+        world.spawnEnemyBullet(e.x, e.y, Math.cos(a) * 175, Math.sin(a) * 175);
+      }
     }
     e.shootT = e.phase === 2 ? 2.4 : 3.2;
   }
@@ -254,6 +264,11 @@ function updateBoss2(e, world, dt, nx, ny, dist) {
       e.state = 'seek';
       e.stateT = 0.6;
       e.chargeT = e.phase === 2 ? 4.5 : 6;
+      // The charge ends in a shockwave ring — clear the space around it.
+      for (let i = 0; i < 8; i += 1) {
+        const a = (i / 8) * Math.PI * 2;
+        world.spawnEnemyBullet(e.x, e.y, Math.cos(a) * 180, Math.sin(a) * 180);
+      }
     }
   } else if (e.state === 'aim') {
     e.vx *= 1 - 4 * dt;
@@ -316,6 +331,18 @@ export function drawEnemy(ctx, e, time) {
   ctx.globalAlpha = 0.35 + 0.65 * scaleIn;
 
   ctx.rotate(e.kind === 'darter' || e.kind === 'swarm' ? e.angle : 0);
+  // A telegraphed charge: a dashed line shows where the boss is about to go.
+  if (e.boss && e.state === 'aim') {
+    ctx.save();
+    ctx.strokeStyle = 'rgba(255, 80, 80, 0.6)';
+    ctx.lineWidth = 3;
+    ctx.setLineDash([12, 10]);
+    ctx.beginPath();
+    ctx.moveTo(0, 0);
+    ctx.lineTo(Math.cos(e.angle) * 260, Math.sin(e.angle) * 260);
+    ctx.stroke();
+    ctx.restore();
+  }
   ctx.fillStyle = e.color;
   ctx.strokeStyle = e.core;
   ctx.lineWidth = 2;
@@ -427,6 +454,12 @@ export function drawEnemy(ctx, e, time) {
       ctx.beginPath();
       ctx.arc(0, 0, r * 0.16, 0, Math.PI * 2);
       ctx.fill();
+      // A hanging ring on top, so the lantern reads as something that once hung somewhere.
+      ctx.strokeStyle = '#2a1a08';
+      ctx.lineWidth = 4;
+      ctx.beginPath();
+      ctx.arc(0, -r * 1.14, r * 0.16, 0, Math.PI * 2);
+      ctx.stroke();
       break;
     }
     case 'boss2': {
@@ -451,6 +484,25 @@ export function drawEnemy(ctx, e, time) {
       ctx.arc(-r * 0.32, -r * 0.1, r * 0.13, 0, Math.PI * 2);
       ctx.arc(r * 0.32, -r * 0.1, r * 0.13, 0, Math.PI * 2);
       ctx.fill();
+      // A crown band across the hood, and three wisps trailing beneath it.
+      ctx.strokeStyle = '#ffd166';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-r * 0.75, -r * 0.62);
+      ctx.lineTo(-r * 0.4, -r * 0.88);
+      ctx.lineTo(0, -r * 0.62);
+      ctx.lineTo(r * 0.4, -r * 0.88);
+      ctx.lineTo(r * 0.75, -r * 0.62);
+      ctx.stroke();
+      ctx.fillStyle = e.color;
+      for (let k = -1; k <= 1; k += 1) {
+        const wob = Math.sin(time * 4 + k * 2) * r * 0.1;
+        ctx.beginPath();
+        ctx.moveTo(k * r * 0.45 - r * 0.12, r * 0.8);
+        ctx.quadraticCurveTo(k * r * 0.45 + wob, r * 1.3, k * r * 0.45 + r * 0.12, r * 0.8);
+        ctx.closePath();
+        ctx.fill();
+      }
       break;
     }
     default: {
@@ -460,13 +512,49 @@ export function drawEnemy(ctx, e, time) {
     }
   }
 
-  // Elites wear a gold ring.
+  // Eyes: every kind watches the keeper, so each one reads as a creature, not a
+  // coloured blob. Darters and swarms are already rotated to face their angle; the
+  // others look along e.angle in unrotated space. Bosses have their own eyes.
+  if (e.kind !== 'boss1' && e.kind !== 'boss2') {
+    const rotated = e.kind === 'darter' || e.kind === 'swarm';
+    const fx = rotated ? 1 : Math.cos(e.angle);
+    const fy = rotated ? 0 : Math.sin(e.angle);
+    const px = -fy;
+    const py = fx;
+    const eye = (ox, oy, rr) => {
+      ctx.fillStyle = '#fff6d8';
+      ctx.beginPath();
+      ctx.arc(ox, oy, rr, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#1a0d00';
+      ctx.beginPath();
+      ctx.arc(ox + fx * rr * 0.35, oy + fy * rr * 0.35, rr * 0.5, 0, Math.PI * 2);
+      ctx.fill();
+    };
+    if (e.kind === 'swarm') {
+      eye(fx * r * 0.35, fy * r * 0.35, r * 0.3);
+    } else {
+      eye(fx * r * 0.3 + px * r * 0.38, fy * r * 0.3 + py * r * 0.38, r * 0.22);
+      eye(fx * r * 0.3 - px * r * 0.38, fy * r * 0.3 - py * r * 0.38, r * 0.22);
+    }
+  }
+
+  // Elites wear a ring in their modifier's colour, with a marker above them.
   if (e.elite) {
-    ctx.strokeStyle = '#ffd166';
+    const modColor = e.mod ? ELITE_MODS[e.mod].color : '#ffd166';
+    ctx.strokeStyle = modColor;
     ctx.lineWidth = 3;
     ctx.beginPath();
     ctx.arc(0, 0, r + 6, 0, Math.PI * 2);
     ctx.stroke();
+    if (e.mod) {
+      ctx.fillStyle = modColor;
+      ctx.save();
+      ctx.translate(0, -r - 14);
+      ctx.rotate(Math.PI / 4);
+      ctx.fillRect(-4, -4, 8, 8);
+      ctx.restore();
+    }
   }
   // A hit flashes the shape pale for an instant — capped, so a boss under constant
   // fire shimmers instead of washing out to a white disc.

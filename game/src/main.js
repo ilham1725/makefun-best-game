@@ -12,13 +12,13 @@ import { BEST_KEY, STEP } from './config.js';
 import {
   ACTION_CARD_1, ACTION_CARD_2, ACTION_CARD_3, ACTION_CONFIRM, ACTION_MUTE, ACTION_PAUSE, createInput,
 } from './input.js';
-import { createWorld, EVENT_BOSS, EVENT_HIT, EVENT_KILL, EVENT_LEVELUP, EVENT_NOVA, EVENT_OVER, EVENT_PICKUP, EVENT_VICTORY, EVENT_WAVE } from './world.js';
+import { createWorld, EVENT_BOSS, EVENT_DASH, EVENT_HIT, EVENT_KILL, EVENT_LEVELUP, EVENT_MILESTONE, EVENT_NOVA, EVENT_OVER, EVENT_PICKUP, EVENT_VICTORY, EVENT_WAVE } from './world.js';
 import { createAudio } from './audio.js';
 import {
   SCREEN_OVER, SCREEN_PAUSED, SCREEN_PLAY, SCREEN_TITLE, SCREEN_UPGRADE, SCREEN_VICTORY,
   RESTART_BUTTON, START_BUTTON, cardRect, createRenderer, hitButton,
 } from './render.js';
-import { autopilot, stageShot } from './shots.js';
+import { autopilot, bestCardIndex, stageShot } from './shots.js';
 
 /** The longest frame the loop catches up on; a longer stall is dropped, not replayed. */
 const MAX_FRAME = 0.25;
@@ -101,6 +101,8 @@ function runGame() {
       over: world.over,
       victory: world.victory,
       playTime: world.playTime,
+      dashCd: world.player.dashCd,
+      weapon: world.player.stats.weapon,
     };
   }
 
@@ -171,6 +173,8 @@ function runGame() {
     }
     if (event & EVENT_PICKUP) audio.pickup();
     if (event & EVENT_NOVA) audio.nova();
+    if (event & EVENT_DASH) audio.dash();
+    if (event & EVENT_MILESTONE) audio.milestone();
     if (event & EVENT_WAVE) audio.waveStart();
     if (event & EVENT_BOSS) audio.bossRoar();
     if (event & EVENT_LEVELUP && screen === SCREEN_PLAY) {
@@ -224,7 +228,7 @@ function runGame() {
     if (pilotMode) {
       if (screen === SCREEN_TITLE && now > 600) startGame();
       else if (screen === SCREEN_UPGRADE && now - upgradeShownAt > PILOT_PICK_DELAY * 1000) {
-        pickCard(0);
+        pickCard(bestCardIndex(world.pendingUpgrades));
       }
     }
   }
@@ -243,6 +247,7 @@ function runGame() {
         ax: input.aim().x,
         ay: input.aim().y,
         firing: input.firing(),
+        dash: input.takeDash(),
       };
     world.step(STEP, ctrl, false);
   }

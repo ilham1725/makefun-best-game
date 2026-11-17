@@ -4,7 +4,7 @@
 // the same seed and the same inputs always play the same game, which is what makes the
 // staged screenshots honest. Sounds are reported as events; the loop plays them.
 
-import { COMBO, ENEMY_BULLET, FIELD, PLAYER, STEP, WAVE_COUNT, xpForLevel } from './config.js';
+import { COMBO, COMBO_MILESTONES, DASH, ENEMY_BULLET, FIELD, PLAYER, STEP, WAVE_COUNT, xpForLevel } from './config.js';
 import { createRandom } from './random.js';
 import { createBoss, createEnemy, updateEnemy } from './enemies.js';
 import { applyPickup, createPickup } from './pickups.js';
@@ -22,6 +22,8 @@ export const EVENT_BOSS = 32;
 export const EVENT_KILL = 64;
 export const EVENT_PICKUP = 128;
 export const EVENT_NOVA = 256;
+export const EVENT_DASH = 512;
+export const EVENT_MILESTONE = 1024;
 
 /** Seconds between nova bursts, once the keeper owns the upgrade. */
 const NOVA_INTERVAL = 7;
@@ -49,6 +51,9 @@ export function createWorld(seedOrRng) {
     pickups: [],
     wave: 0,
     waveT: 0,
+    waveDef: null,
+    surgeAt: 0,
+    surgeDone: false,
     spawnQueue: [],
     boss: null,
     score: 0,
@@ -56,11 +61,15 @@ export function createWorld(seedOrRng) {
     combo: 0,
     comboT: 0,
     bestCombo: 0,
+    milestone: 0,
+    milestoneT: 0,
     time: 0,
     playTime: 0,
     banner: null,
     levelUpsPending: 0,
     pendingUpgrades: null,
+    /** The blessings taken this run, in order — the end screens show the build. */
+    build: [],
     over: false,
     victory: false,
     attract: false,
@@ -86,6 +95,14 @@ export function createWorld(seedOrRng) {
       shieldT: 0,
       spreadT: 0,
       novaT: NOVA_INTERVAL,
+      dashT: 0,
+      dashCd: 0,
+      dashX: 0,
+      dashY: 0,
+      dashing: false,
+      wispT: 0,
+      secondWindUsed: false,
+      muzzleT: 0,
       aimX: FIELD.width / 2,
       aimY: FIELD.height / 2 - 100,
       moving: false,
@@ -105,13 +122,17 @@ export function createWorld(seedOrRng) {
     if (!def) return;
     world.wave = n;
     world.waveT = 0;
+    world.waveDef = def;
+    world.surgeAt = def.surge ? 8 : 0;
+    world.surgeDone = false;
     world.spawnQueue = waveSpawns(n);
     world.banner = { text: def.banner, sub: def.sub, t: 2.6, dur: 2.6 };
     if (def.boss) {
       const boss = createBoss(def.boss, FIELD.width / 2, 150);
       world.enemies.push(boss);
       world.boss = boss;
-      world.banner = { text: def.banner, sub: def.sub, t: 3.2, dur: 3.2 };
+      // Boss waves get the framed intro card, named for the boss itself.
+      world.banner = { text: def.sub, sub: `wave ${n} of ${WAVE_COUNT}`, t: 3.2, dur: 3.2, boss: true };
       emit(EVENT_BOSS);
     } else {
       emit(EVENT_WAVE);
@@ -174,6 +195,24 @@ export function createWorld(seedOrRng) {
         world.enemies.push(createEnemy('drifter', enemy.x + Math.cos(a) * 24, enemy.y + Math.sin(a) * 24, rng, false));
       }
     }
+    if (enemy.mod === 'splitting') {
+      // A splitting elite bursts into two swarm wisps.
+      for (let i = 0; i < 2; i += 1) {
+        const a = rng.range(0, Math.PI * 2);
+        world.enemies.push(createEnemy('swarm', enemy.x + Math.cos(a) * 20, enemy.y + Math.sin(a) * 20, rng, false));
+      }
+    }
+    // Combo milestones pay out a burst of experience the first time each is reached.
+    for (const m of COMBO_MILESTONES) {
+      if (world.combo >= m.at && world.milestone < m.at) {
+        world.milestone = m.at;
+        world.milestoneT = 1.6;
+        world.player.xp += m.xp;
+        world.particles.text(world.player.x, world.player.y - 42, `COMBO x${m.at}! +${m.xp} XP`, '#ffd166', 22);
+        world.particles.burst(world.player.x, world.player.y, '#ffd166', 14, 260);
+        emit(EVENT_MILESTONE);
+      }
+    }
     if (enemy.boss) {
       world.boss = null;
       world.particles.burst(enemy.x, enemy.y, '#ffffff', 30, 380);
@@ -198,6 +237,16 @@ export function createWorld(seedOrRng) {
     world.comboT = 0;
     emit(EVENT_HIT);
     if (player.hp <= 0) {
+      // Second Wind: once per run, the lantern refuses to die.
+      if (player.stats.secondWind > 0 && !player.secondWindUsed) {
+        player.secondWindUsed = true;
+        player.hp = 1;
+        player.invulnT = 2;
+        world.showBanner('SECOND WIND', 'the lantern refuses to die', 2.0);
+        world.particles.burst(player.x, player.y, '#ffd166', 40, 380);
+        world.particles.shake(0.6);
+        return;
+      }
       player.hp = 0;
       world.over = true;
       world.particles.burst(player.x, player.y, '#ffd166', 60, 340);
@@ -209,9 +258,30 @@ export function createWorld(seedOrRng) {
   function fireVolley() {
     const player = world.player;
     const stats = player.stats;
-    const count = stats.projectiles + (player.spreadT > 0 ? 2 : 0);
+    const weapon = stats.weapon || 'ember';
     const aim = Math.atan2(player.aimY - player.y, player.aimX - player.x);
-    const spread = 0.11;
+    player.muzzleT = 0.06;
+    if (weapon === 'lance') {
+      // The lance: one slow, heavy bolt that pierces everything it crosses.
+      const crit = rng.chance(stats.crit);
+      world.bullets.push({
+        x: player.x + Math.cos(aim) * 24,
+        y: player.y + Math.sin(aim) * 24,
+        vx: Math.cos(aim) * stats.bulletSpeed * 0.85,
+        vy: Math.sin(aim) * stats.bulletSpeed * 0.85,
+        damage: stats.damage * 3 * (crit ? 3 : 1),
+        pierce: stats.pierce + 2,
+        life: stats.bulletLife * 1.2,
+        crit,
+        kind: 'lance',
+        hit: [],
+      });
+      world.shotsFired += 1;
+      player.fireT = stats.fireInterval * 1.7;
+      return;
+    }
+    const count = stats.projectiles + (player.spreadT > 0 ? 2 : 0) + (weapon === 'spread' ? 2 : 0);
+    const spread = weapon === 'spread' ? 0.24 : 0.11;
     for (let i = 0; i < count; i += 1) {
       const offset = (i - (count - 1) / 2) * spread;
       const a = aim + offset;
@@ -223,8 +293,9 @@ export function createWorld(seedOrRng) {
         vy: Math.sin(a) * stats.bulletSpeed,
         damage: stats.damage * (crit ? 3 : 1),
         pierce: stats.pierce,
-        life: stats.bulletLife,
+        life: stats.bulletLife * (weapon === 'spread' ? 0.8 : 1),
         crit,
+        kind: weapon,
         hit: [],
       });
     }
@@ -286,6 +357,9 @@ export function createWorld(seedOrRng) {
     player.invulnT = Math.max(0, player.invulnT - dt);
     player.shieldT = Math.max(0, player.shieldT - dt);
     player.spreadT = Math.max(0, player.spreadT - dt);
+    player.muzzleT = Math.max(0, player.muzzleT - dt);
+    player.dashCd = Math.max(0, player.dashCd - dt);
+    world.milestoneT = Math.max(0, world.milestoneT - dt);
     if (world.comboT > 0) {
       world.comboT -= dt;
       if (world.comboT <= 0) world.combo = 0;
@@ -304,6 +378,33 @@ export function createWorld(seedOrRng) {
     player.aimX = ctrl.ax;
     player.aimY = ctrl.ay;
 
+    // Dash: a burst in the move direction (or the aim, when standing still), with
+    // mercy frames for the burst and a breath after. One press, one dash.
+    if (ctrl.dash && player.dashCd <= 0 && !player.dashing) {
+      player.dashing = true;
+      player.dashT = DASH.duration;
+      player.dashCd = DASH.cooldown * player.stats.dashCdMul;
+      player.invulnT = Math.max(player.invulnT, DASH.duration + DASH.invulnAfter);
+      if (ml > 0.1) {
+        player.dashX = mx / ml;
+        player.dashY = my / ml;
+      } else {
+        const a = Math.atan2(player.aimY - player.y, player.aimX - player.x);
+        player.dashX = Math.cos(a);
+        player.dashY = Math.sin(a);
+      }
+      world.particles.burst(player.x, player.y, '#ffd166', 10, 200);
+      emit(EVENT_DASH);
+    }
+    if (player.dashing) {
+      player.dashT -= dt;
+      const ds = player.stats.speed * DASH.speedMul;
+      player.x = Math.max(PLAYER.radius, Math.min(FIELD.width - PLAYER.radius, player.x + player.dashX * ds * dt));
+      player.y = Math.max(PLAYER.radius, Math.min(FIELD.height - PLAYER.radius, player.y + player.dashY * ds * dt));
+      world.particles.embers(player.x, player.y, '#ffd166', 1);
+      if (player.dashT <= 0) player.dashing = false;
+    }
+
     // Shoot.
     if (ctrl.firing && player.fireT <= 0) fireVolley();
 
@@ -316,6 +417,31 @@ export function createWorld(seedOrRng) {
       }
     }
 
+    // Wisp companions fire on their own at the nearest foe in reach.
+    if (player.stats.wisp > 0) {
+      player.wispT -= dt;
+      if (player.wispT <= 0) {
+        player.wispT = 0.5;
+        const foe = world.nearestEnemy(player.x, player.y);
+        if (foe && Math.hypot(foe.x - player.x, foe.y - player.y) < 460) {
+          const a = Math.atan2(foe.y - player.y, foe.x - player.x);
+          world.bullets.push({
+            x: player.x + Math.cos(a) * 26,
+            y: player.y + Math.sin(a) * 26,
+            vx: Math.cos(a) * 560,
+            vy: Math.sin(a) * 560,
+            damage: 1,
+            pierce: 0,
+            life: 0.9,
+            crit: false,
+            kind: 'wisp',
+            wisp: true,
+            hit: [],
+          });
+        }
+      }
+    }
+
     // Waves: feed the schedule, then check for a clear.
     world.waveT += dt;
     while (world.spawnQueue.length > 0 && world.spawnQueue[0].at <= world.waveT) {
@@ -323,8 +449,22 @@ export function createWorld(seedOrRng) {
       const p = edgePoint();
       world.enemies.push(createEnemy(spawn.kind, p.x, p.y, rng, spawn.elite));
     }
+    // Surge waves: halfway in, the swarm descends all at once.
+    if (world.surgeAt > 0 && !world.surgeDone && world.waveT >= world.surgeAt) {
+      world.surgeDone = true;
+      world.showBanner('THE SURGE IS HERE', 'the swarm descends', 2.2);
+      for (let i = 0; i < 6; i += 1) {
+        const p = edgePoint();
+        world.enemies.push(createEnemy('swarm', p.x, p.y, rng, false));
+      }
+      emit(EVENT_WAVE);
+    }
     if (world.spawnQueue.length === 0 && world.enemies.length === 0 && !world.boss) {
       world.wavesCleared += 1;
+      // A wave cleared pays a bonus, bigger the deeper the night.
+      const bonus = world.wave * 50;
+      world.score += bonus;
+      world.particles.text(player.x, player.y - 42, `WAVE BONUS +${bonus}`, '#8affc1', 20);
       if (world.wave >= WAVE_COUNT) {
         world.victory = true;
         emit(EVENT_VICTORY);
@@ -362,6 +502,12 @@ export function createWorld(seedOrRng) {
           if (e.hp <= 0) killEnemy(e, i);
         } else {
           hurtPlayer(e.damage, e.x, e.y);
+          // Thorn Cloak: the attacker takes damage back for the touch.
+          if (player.stats.thorns > 0) {
+            e.hp -= player.stats.thorns;
+            e.flash = 1;
+            if (e.hp <= 0) killEnemy(e, i);
+          }
           // The attacker is knocked back too, so one touch is one hit.
           const nx = (e.x - player.x) / (d || 1);
           const ny = (e.y - player.y) / (d || 1);
@@ -410,7 +556,7 @@ export function createWorld(seedOrRng) {
           const rr = e.radius + 6;
           if (Math.abs(e.x - b.x) < rr && Math.abs(e.y - b.y) < rr && Math.hypot(e.x - b.x, e.y - b.y) < rr) {
             b.hit.push(e);
-            world.shotsHit += 1;
+            if (!b.wisp) world.shotsHit += 1;
             e.hp -= b.damage;
             e.flash = 1;
             world.particles.burst(b.x, b.y, b.crit ? '#ffe066' : '#ffb347', b.crit ? 8 : 4, 160);
@@ -516,6 +662,9 @@ export function createWorld(seedOrRng) {
     world.pickups = [];
     world.wave = 0;
     world.waveT = 0;
+    world.waveDef = null;
+    world.surgeAt = 0;
+    world.surgeDone = false;
     world.spawnQueue = [];
     world.boss = null;
     world.score = 0;
@@ -523,11 +672,14 @@ export function createWorld(seedOrRng) {
     world.combo = 0;
     world.comboT = 0;
     world.bestCombo = 0;
+    world.milestone = 0;
+    world.milestoneT = 0;
     world.time = 0;
     world.playTime = 0;
     world.banner = null;
     world.levelUpsPending = 0;
     world.pendingUpgrades = null;
+    world.build = [];
     world.over = false;
     world.victory = false;
     world.shotsFired = 0;
@@ -562,6 +714,7 @@ export function createWorld(seedOrRng) {
     const found = world.pendingUpgrades.find((u) => u.id === id);
     if (!found) return false;
     found.apply(world.player.stats, world);
+    world.build.push(found.name);
     world.levelUpsPending -= 1;
     world.pendingUpgrades = world.levelUpsPending > 0 ? rollUpgrades(rng, 3) : null;
     world.particles.embers(world.player.x, world.player.y, '#ffd166', 14);

@@ -30,6 +30,22 @@ export const PLAYER = {
   knockback: 320,
 };
 
+/** The dash: a short burst with mercy frames, then a cooldown. */
+export const DASH = {
+  duration: 0.16,
+  speedMul: 3.4,
+  cooldown: 2.2,
+  /** Mercy frames last the whole dash plus a little after. */
+  invulnAfter: 0.12,
+};
+
+/** The three weapons the keeper can grow into: ember, spread fan, piercing lance. */
+export const WEAPONS = {
+  ember: { name: 'Ember Rounds', color: '#ffd166', core: '#fff3c4' },
+  spread: { name: 'Spread Fan', color: '#7fe7ff', core: '#e6fbff' },
+  lance: { name: 'Piercing Lance', color: '#c99aff', core: '#f0e2ff' },
+};
+
 /** The night palette: deep indigo arena, warm lantern gold, ember orange. */
 export const PALETTE = {
   skyTop: '#0a0e24',
@@ -79,6 +95,13 @@ export const ENEMY_DEFS = {
 /** Elites grow from wave 4: bigger, tougher, worth far more. */
 export const ELITE = { hpMul: 3, speedMul: 0.92, radiusMul: 1.45, scoreMul: 4, xpMul: 3 };
 
+/** Elite modifiers: one rolls per elite, and it changes how the foe fights. */
+export const ELITE_MODS = {
+  swift: { name: 'Swift', color: '#7fe7ff', speedMul: 1.35 },
+  armored: { name: 'Armored', color: '#ffd166', hpMul: 1.4 },
+  splitting: { name: 'Splitting', color: '#ff6fb3' },
+};
+
 /** The two bosses: the Hollow Lantern guards wave 5, the Night Warden wave 10. */
 export const BOSS_DEFS = {
   boss1: {
@@ -96,6 +119,13 @@ export const ENEMY_BULLET = { speed: 250, radius: 7, life: 5 };
 
 /** How long a kill keeps the combo alive, and how much each combo step is worth. */
 export const COMBO = { window: 3.0, step: 0.1, cap: 3.0 };
+
+/** Combo milestones: reach one and the keeper earns a burst of experience. */
+export const COMBO_MILESTONES = [
+  { at: 25, xp: 5 },
+  { at: 50, xp: 10 },
+  { at: 100, xp: 20 },
+];
 
 /** Experience for the next level: gentle early, steeper as the keeper grows. */
 export function xpForLevel(level) {

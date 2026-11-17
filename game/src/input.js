@@ -38,6 +38,7 @@ export function createInput(canvas) {
   let mouseY = FIELD.height / 2;
   let mouseDown = false;
   let click = null;
+  let dashQueued = false;
   let unlocks = 0;
 
   function toLogical(clientX, clientY) {
@@ -56,6 +57,8 @@ export function createInput(canvas) {
     down.add(event.code);
     const action = KEY_ACTIONS[event.code];
     if (action) actions |= action;
+    // Either Shift queues one dash; holding it does not re-queue (repeats are out).
+    if (event.code === 'ShiftLeft' || event.code === 'ShiftRight') dashQueued = true;
     if (event.code === 'Space' || event.code.startsWith('Arrow')) event.preventDefault();
     unlocks += 1;
   }
@@ -128,6 +131,12 @@ export function createInput(canvas) {
     takeClick() {
       const taken = click;
       click = null;
+      return taken;
+    },
+    /** A queued dash since the last call; consumed on read, so one press is one dash. */
+    takeDash() {
+      const taken = dashQueued;
+      dashQueued = false;
       return taken;
     },
     /** How many gestures have happened (the audio layer unlocks on the first). */

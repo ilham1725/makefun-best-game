@@ -39,6 +39,7 @@ const WAVES = [
   },
   {
     banner: 'WAVE 3', sub: 'darters on the wind',
+    surge: true,
     spawns: [...spread('drifter', 7, 0.5, 10), ...spread('darter', 6, 2, 12), ...swarmCluster(4, 7)],
   },
   {
@@ -56,6 +57,7 @@ const WAVES = [
   },
   {
     banner: 'WAVE 7', sub: 'the swarm descends',
+    surge: true,
     spawns: [...spread('darter', 7, 0.5, 12), ...spread('spitter', 6, 2, 13), ...spread('brute', 3, 4, 12), ...swarmCluster(5, 5), ...swarmCluster(5, 10), at('brute', 9, true)],
   },
   {
